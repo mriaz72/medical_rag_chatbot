@@ -9,4 +9,6 @@ dependencies = [
     "langchain>=1.2.15",
     "langchain-community>=0.4.1",
     "langchain-huggingface>=1.2.2",
+    "pypdf>=6.10.2",
+    "sentence-transformers>=5.4.1",
 ]
