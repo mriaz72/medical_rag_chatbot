@@ -1,83 +1,57 @@
 import os
-from dotenv import load_dotenv
-load_dotenv()
-
-from transformers import pipeline
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 from langchain_core.prompts import PromptTemplate
-from langchain_core.runnables import RunnablePassthrough
-from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.vectorstores import FAISS
 
-# =========================
-# LOCAL LLM (FLAN-T5)
-# =========================
-model_path = "google/flan-t5-base"  # local cache OR downloaded folder
+## Uncomment the following files if you're not using pipenv as your virtual environment manager
+#from dotenv import load_dotenv, find_dotenv
+#load_dotenv(find_dotenv())
 
-llm_pipeline = pipeline(
-    "text-generation",
-    model=model_path,
-    max_new_tokens=512,
-    temperature=0.5
-)
+# Step 1: Setup LLM (Local FLAN-T5)
+LOCAL_MODEL_PATH = "google/flan-t5-base"
 
-def call_llm(prompt: str) -> str:
-    result = llm_pipeline(prompt)
-    return result[0]["generated_text"]
+def load_llm(model_path):
+    tokenizer = AutoTokenizer.from_pretrained(model_path)
+    model = AutoModelForSeq2SeqLM.from_pretrained(model_path)
 
-# =========================
-# Custom Prompt
-# =========================
-custom_prompt = """Use the information provided in the context to answer the question.
+    def call_llm(prompt: str) -> str:
+        inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=512)
+        outputs = model.generate(**inputs, max_new_tokens=256, num_beams=4, early_stopping=True)
+        return tokenizer.decode(outputs[0], skip_special_tokens=True)
 
-If you don't know, say you don't know.
+    return call_llm
 
-Context:
-{context}
-
-Question:
-{question}
-
-Answer:
+# Step 2: Connect LLM with FAISS and Create chain
+CUSTOM_PROMPT_TEMPLATE = """
+Use the pieces of information provided in the context to answer user's question.
+If you dont know the answer, just say that you dont know, dont try to make up an answer. 
+Dont provide anything out of the given context
+Context: {context}
+Question: {question}
+Start the answer directly. No small talk please.
 """
 
-def set_custom_prompt():
-    return PromptTemplate(
-        template=custom_prompt,
-        input_variables=["context", "question"]
-    )
+def set_custom_prompt(custom_prompt_template):
+    prompt = PromptTemplate(template=custom_prompt_template, input_variables=["context", "question"])
+    return prompt
 
-# =========================
-# Load Vector DB
-# =========================
+# Load Database
 DB_FAISS_PATH = "vector_store/faiss_index"
+embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+db = FAISS.load_local(DB_FAISS_PATH, embedding_model, allow_dangerous_deserialization=True)
 
-embedding_model = HuggingFaceEmbeddings(
-    model_name="sentence-transformers/all-MiniLM-L6-v2"
-)
+retriever = db.as_retriever(search_kwargs={'k': 3})
 
-db = FAISS.load_local(
-    DB_FAISS_PATH,
-    embedding_model,
-    allow_dangerous_deserialization=True
-)
-
-retriever = db.as_retriever(search_kwargs={"k": 4})
-
-# =========================
-# Format docs
-# =========================
+# Format docs helper
 def format_docs(docs):
     return "\n\n".join(doc.page_content for doc in docs)
 
-# =========================
-# Prompt
-# =========================
-prompt = set_custom_prompt()
-
-# =========================
-# RAG PIPELINE
-# =========================
+# RAG Pipeline
 def rag_pipeline(question: str):
+    llm = load_llm(LOCAL_MODEL_PATH)
+    prompt = set_custom_prompt(CUSTOM_PROMPT_TEMPLATE)
+
     docs = retriever.invoke(question)
     context = format_docs(docs)
 
@@ -86,19 +60,15 @@ def rag_pipeline(question: str):
         question=question
     )
 
-    answer = call_llm(final_prompt)
+    answer = llm(final_prompt)
 
     return {
-        "answer": answer,
+        "result": answer,
         "source_documents": docs
     }
 
-# =========================
-# RUN
-# =========================
-user_question = input("Ask a question: ")
-
-response = rag_pipeline(user_question)
-
-print("\nAnswer:\n", response["answer"])
-print("\nSources:\n", response["source_documents"])
+# Now invoke with a single query
+user_query = input("Write Query Here: ")
+response = rag_pipeline(user_query)
+print("RESULT: ", response["result"])
+print("SOURCE DOCUMENTS: ", response["source_documents"])
