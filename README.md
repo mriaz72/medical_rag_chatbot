@@ -22,21 +22,6 @@ streamlit run app.py
 Then open `http://localhost:8501`.
 
 
-### Screenshots
-
-Add screenshots for key states of your app:
-
-```text
-assets/screenshots/home1.png
-assets/screenshots/home2.png
-```
-
-Example markdown once images are added:
-
-```md
-![Home](assets/screenshots/home1.png)
-![Answer with Sources](assets/screenshots/home2.png)
-```
 
 ## Why This Project
 
